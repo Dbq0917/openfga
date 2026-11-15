@@ -39,6 +39,12 @@ type ResolveCheckRequest struct {
 
 	objectType string
 	userType   string
+
+	// inflight deduplicates identical subproblems reached concurrently from
+	// different branches of the same top-level request (e.g. diamond-shaped
+	// group nesting). It is shared across clones and never retains completed
+	// results, so it is not a cross-request result cache.
+	inflight *inflightSubproblemRegistry
 }
 
 type ResolveCheckRequestMetadata struct {
@@ -109,6 +115,7 @@ func NewResolveCheckRequest(
 
 		objectType: tuple.GetType(params.TupleKey.GetObject()),
 		userType:   userType,
+		inflight:   newInflightSubproblemRegistry(),
 	}
 
 	r.invariantCacheKey = storage.InvariantCacheKey(params.StoreID, params.AuthorizationModelID, params.Context, params.ContextualTuples...)
@@ -117,6 +124,10 @@ func NewResolveCheckRequest(
 }
 
 func (r *ResolveCheckRequest) clone() *ResolveCheckRequest {
+	if r == nil {
+		return &ResolveCheckRequest{VisitedPaths: map[string]struct{}{}}
+	}
+
 	var requestMetadata *ResolveCheckRequestMetadata
 	origRequestMetadata := r.GetRequestMetadata()
 	if origRequestMetadata != nil {
@@ -147,6 +158,7 @@ func (r *ResolveCheckRequest) clone() *ResolveCheckRequest {
 		SelectedStrategy:          r.GetSelectedStrategy(),
 		objectType:                r.GetObjectType(),
 		userType:                  r.GetUserType(),
+		inflight:                  r.inflight,
 	}
 	return cloned
 }

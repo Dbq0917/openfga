@@ -378,12 +378,22 @@ func (c *LocalChecker) Close() {
 // dispatch dispatches the given request to the CheckResolver this LocalChecker was constructed with.
 func (c *LocalChecker) dispatch(_ context.Context, req *ResolveCheckRequest) CheckHandlerFunc {
 	return func(ctx context.Context) (*ResolveCheckResponse, error) {
-		req.GetRequestMetadata().Depth++
-		resp, err := c.delegate.ResolveCheck(ctx, req)
-		if err != nil {
-			return nil, err
+		resolve := func() (*ResolveCheckResponse, error) {
+			req.GetRequestMetadata().Depth++
+			resp, err := c.delegate.ResolveCheck(ctx, req)
+			if err != nil {
+				return nil, err
+			}
+			return resp, nil
 		}
-		return resp, nil
+
+		registry := req.inflight
+		if registry == nil {
+			return resolve()
+		}
+
+		key := tuple.TupleKeyToString(req.GetTupleKey())
+		return registry.resolve(ctx, key, resolve)
 	}
 }
 
